@@ -1,0 +1,53 @@
+# Risk ruleset v1.0 — deterministic. No numeric weights.
+# Categories: technical | social_engineering
+# Each rule: id, description, category, condition (simple matcher)
+version: "1.0"
+rules:
+  - id: SE_URGENCY_EN
+    description: "Urgency language (EN)"
+    category: social_engineering
+    patterns: ["act now", "immediately", "urgent", "within 24 hours", "last warning"]
+  - id: SE_URGENCY_HI
+    description: "Urgency language (Hindi)"
+    category: social_engineering
+    patterns: ["तुरंत", "अभी", "जल्दी", "24 घंटे", "अंतिम चेतावनी"]
+  - id: SE_AUTHORITY_EN
+    description: "Authority impersonation (EN)"
+    category: social_engineering
+    patterns: ["bank", "kyc", "account blocked", "verify your identity", "official notice"]
+  - id: SE_AUTHORITY_HI
+    description: "Authority impersonation (Hindi)"
+    category: social_engineering
+    patterns: ["बैंक", "केवाईसी", "खाता बंद", "पहचान सत्यापित", "आधिकारिक सूचना"]
+  - id: SE_FINANCIAL_BAIT_EN
+    description: "Financial bait (EN)"
+    category: social_engineering
+    patterns: ["lottery", "prize", "won", "cashback", "free money", "investment offer"]
+  - id: SE_FINANCIAL_BAIT_HI
+    description: "Financial bait (Hindi)"
+    category: social_engineering
+    patterns: ["लॉटरी", "इनाम", "जीते", "कैशबैक", "मुफ्त"]
+  - id: SE_CREDENTIAL_EN
+    description: "Credential request (EN)"
+    category: social_engineering
+    patterns: ["enter otp", "share pin", "password", "cvv", "click to verify"]
+  - id: SE_CREDENTIAL_HI
+    description: "Credential request (Hindi)"
+    category: social_engineering
+    patterns: ["ओटीपी", "पिन", "पासवर्ड", "सीवीवी", "सत्यापित करें"]
+  - id: SE_ACCOUNT_SUSPENSION_EN
+    description: "Account suspension / closure threat (EN)"
+    category: social_engineering
+    patterns: ["account suspended", "account will be closed", "account blocked permanently", "restricted access", "reactivate your account"]
+  - id: SE_ACCOUNT_SUSPENSION_HI
+    description: "Account suspension / closure threat (Hindi)"
+    category: social_engineering
+    patterns: ["खाता निलंबित", "खाता बंद कर दिया जाएगा", "प्रतिबंधित", "फिर सक्रिय करें", "खाता अवरुद्ध"]
+  - id: TECH_NEW_DOMAIN
+    description: "Newly registered domain (<30 days) — weak signal only"
+    category: technical
+    patterns: []  # evaluated via RDAP result, not text
+  - id: TECH_URL_PRESENT
+    description: "Contains a URL"
+    category: technical
+    patterns: []  # evaluated structurally

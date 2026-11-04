@@ -1,0 +1,4 @@
+{
+  "_fixture_meta": { "source": "synthetic", "purpose": "malformed — missing indicators, expect 400" },
+  "scan_id": "00000000-0000-0000-0000-000000000001"
+}

@@ -1,0 +1,4 @@
+{
+  "_fixture_meta": { "source": "synthetic", "provider": "abuseipdb" },
+  "data": { "ipAddress": "1.2.3.4", "abuseConfidenceScore": 92 }
+}

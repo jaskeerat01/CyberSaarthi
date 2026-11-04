@@ -1,0 +1,7 @@
+{
+  "_fixture_meta": { "source": "synthetic", "provider": "rdap" },
+  "ldhName": "evil.example",
+  "events": [
+    { "eventAction": "registration", "eventDate": "2026-10-01T00:00:00Z" }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "_fixture_meta": { "source": "synthetic", "provider": "phishtank" },
+  "status": "success",
+  "results": {
+    "verified": true,
+    "valid": true,
+    "phish_detail_url": "https://phishtank.example/detail/123"
+  }
+}

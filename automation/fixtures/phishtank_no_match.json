@@ -1,0 +1,5 @@
+{
+  "_fixture_meta": { "source": "synthetic", "provider": "phishtank" },
+  "status": "success",
+  "results": { "verified": false, "valid": false }
+}

@@ -1,0 +1,9 @@
+{
+  "_fixture_meta": { "source": "synthetic", "purpose": "valid webhook payload" },
+  "scan_id": "00000000-0000-0000-0000-000000000001",
+  "indicators": [
+    { "type": "URL", "normalised_value": "https://evil.example/login" },
+    { "type": "DOMAIN", "normalised_value": "evil.example" }
+  ],
+  "attempt": 1
+}

@@ -1,0 +1,70 @@
+{
+  "name": "CyberSathi - Error Handler",
+  "n8n_workflow_id": "cT6DIIPxG44WpTSU",
+  "exported_at": "2026-11-05",
+  "sanitized": "No secrets present. Credential IDs removed (names kept).",
+  "description": "Error Trigger workflow that reports failed CyberSathi executions to the internal API, keyed by n8n execution_id.",
+  "nodes": [
+    {
+      "id": "18b29e14-c637-4c2d-af90-d8f1ec1197a0",
+      "name": "Workflow Error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": {}
+    },
+    {
+      "id": "72b33258-a060-4b0c-9e42-108dc817644c",
+      "name": "Build Failure Event",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [272, 128],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            { "id": "fail-workflow", "name": "workflow_name", "value": "={{ $json.workflow.name }}", "type": "string" },
+            { "id": "fail-execution", "name": "execution_id", "value": "={{ String($json.execution.id) }}", "type": "string" },
+            { "id": "fail-node", "name": "failed_node", "value": "={{ $json.execution.lastNodeExecuted || \"\" }}", "type": "string" },
+            { "id": "fail-message", "name": "error_message", "value": "={{ String(($json.execution.error && $json.execution.error.message) || \"unknown\") }}", "type": "string" },
+            { "id": "fail-time", "name": "occurred_at", "value": "={{ $now.toISO() }}", "type": "string" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d763d5bd-fdeb-4ef0-b261-84e35bce8bf2",
+      "name": "Post Failure to Internal API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [496, 128],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.INTERNAL_API_BASE_URL }}/internal/workflow-failures",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow_name: $json.workflow_name, execution_id: $json.execution_id, failed_node: $json.failed_node, error_message: $json.error_message, occurred_at: $json.occurred_at }) }}",
+        "options": { "timeout": 10000 }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "efc75f6c-e615-40c5-ab2a-ec17a219b5bd",
+      "name": "Sticky Note 9bcd9c52",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [176, 320],
+      "parameters": {
+        "content": "## CyberSathi error handler\nSet this workflow as the error workflow for CyberSathi - Scan Investigation and CyberSathi - OpenPhish Feed Sync in each workflow's settings. The failure event carries the n8n execution_id. The API maps it to a scan through the execution_id returned by the 202 acknowledgement."
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Error": { "main": [[{ "node": "Build Failure Event", "type": "main", "index": 0 }]] },
+    "Build Failure Event": { "main": [[{ "node": "Post Failure to Internal API", "type": "main", "index": 0 }]] }
+  }
+}
