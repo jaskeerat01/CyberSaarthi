@@ -27,7 +27,10 @@ const mockedGetScan = vi.mocked(getScan);
 
 function wrap() {
   return render(
-    <MemoryRouter initialEntries={['/scan/abc/result']}>
+    <MemoryRouter
+      initialEntries={['/scan/abc/result']}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
       <QueryClientProvider client={new QueryClient()}>
         <Routes>
           <Route path="/scan/:scanId/result" element={<ResultPage />} />

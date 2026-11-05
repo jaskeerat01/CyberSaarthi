@@ -12,7 +12,7 @@ vi.mock('../../shared/api', () => ({
 function renderWith(items: { scan_id: string; status: string }[]) {
   localStorage.setItem('cybersathi-history', JSON.stringify(items));
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <HistoryPage />
     </MemoryRouter>
   );

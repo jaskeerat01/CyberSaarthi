@@ -16,7 +16,10 @@ vi.mock('../../shared/api', () => ({
 
 function wrap() {
   return render(
-    <MemoryRouter initialEntries={['/scan/abc/report']}>
+    <MemoryRouter
+      initialEntries={['/scan/abc/report']}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
       <QueryClientProvider client={new QueryClient()}>
         <Routes>
           <Route path="/scan/:scanId/report" element={<ReportPage />} />

@@ -30,7 +30,7 @@ describe('accessibility (axe)', () => {
 
   it('SubmissionPage has no serious violations', async () => {
     const { container } = render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <QueryClientProvider client={new QueryClient()}>
           <SubmissionPage />
         </QueryClientProvider>
@@ -41,7 +41,10 @@ describe('accessibility (axe)', () => {
 
   it('ResultPage (incl. helpline banner + defanged indicators) has no serious violations', async () => {
     const { container } = render(
-      <MemoryRouter initialEntries={['/scan/abc/result']}>
+      <MemoryRouter
+        initialEntries={['/scan/abc/result']}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
         <QueryClientProvider client={new QueryClient()}>
           <Routes>
             <Route path="/scan/:scanId/result" element={<ResultPage />} />

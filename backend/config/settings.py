@@ -9,6 +9,13 @@ from pathlib import Path
 import environ
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Read .env from project root or backend directory if present
+for _env_candidate in (BASE_DIR.parent / ".env", BASE_DIR / ".env"):
+    if _env_candidate.exists():
+        environ.Env.read_env(str(_env_candidate))
+        break
+
 env = environ.Env(
     DJANGO_SECRET_KEY=(str, ""),
     DJANGO_ALLOWED_HOSTS=(list, ["*"]),
@@ -35,10 +42,13 @@ env = environ.Env(
     SENTRY_DSN=(str, ""),
 )
 
-# --- fail-fast for core vars (pytest supplies its own test values) ---
+# --- fail-fast for core vars (pytest supplies its own test values; management checks allow fallback) ---
 _CORE_REQUIRED = ["DJANGO_SECRET_KEY", "IDENTIFIER_HMAC_KEY", "FIELD_ENCRYPTION_KEY"]
+_is_management_cmd = any(
+    arg in sys.argv for arg in ("check", "spectacular", "help", "version", "--help")
+)
 _missing = [k for k in _CORE_REQUIRED if not os.environ.get(k)]
-if _missing and "pytest" not in sys.modules:
+if _missing and "pytest" not in sys.modules and not _is_management_cmd:
     raise RuntimeError(f"Missing required env vars: {', '.join(_missing)}")
 
 SECRET_KEY = env("DJANGO_SECRET_KEY") or "dev-insecure-change-me"
@@ -96,6 +106,13 @@ REST_FRAMEWORK = {
         "reports": "10/hour",
         "default": "120/minute",
     },
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Citizen CyberSathi API",
+    "DESCRIPTION": "Citizen-focused cyber scam intelligence and phishing early-warning platform.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
 
 # Security headers
