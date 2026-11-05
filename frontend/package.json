@@ -34,7 +34,7 @@
     "autoprefixer": "^10.4.19",
     "axe-core": "^4.10.0",
     "eslint": "^8.57.0",
-    "eslint-config-prettier": "^9.1.2",
+    "eslint-config-prettier": "^10.1.8",
     "jsdom": "^24.1.0",
     "postcss": "^8.4.40",
     "prettier": "^3.9.10",
