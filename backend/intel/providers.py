@@ -76,10 +76,13 @@ class PhishTankProvider(ThreatIntelProvider):
             if not settings.FEATURE_PHISHTANK:
                 return ProviderResult(self.name, "UNSUPPORTED", error_detail="disabled")
             quota_key = f"quota:{self.name}"
+            # incr() raises ValueError when the key does not exist yet.
+            cache.add(quota_key, 0, timeout=86400)
             cache.incr(quota_key)
             resp = httpx.post(
-                "https://check.phishtank.com/v2/verified/",
+                "https://checkurl.phishtank.com/checkurl/",
                 data={"url": value, "format": "json", "app_key": settings.PHISHTANK_API_KEY},
+                headers={"User-Agent": "CyberSathi/1.0"},
                 timeout=self.timeout,
             )
             resp.raise_for_status()
@@ -108,7 +111,7 @@ class RdapProvider(ThreatIntelProvider):
 
     def _resolve_rdap_base(self, domain: str) -> str | None:
         try:
-            resp = httpx.get("https://data.iana.org/rdap/dns.json", timeout=self.timeout)
+            resp = httpx.get(settings.RDAP_BOOTSTRAP_URL, timeout=self.timeout)
             resp.raise_for_status()
             bootstrap = resp.json()
             tld = domain.rsplit(".", 1)[-1].lower()

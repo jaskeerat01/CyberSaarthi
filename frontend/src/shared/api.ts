@@ -51,9 +51,10 @@ export async function getScan(scanId: string): Promise<ScanDetail> {
 }
 
 export async function deleteScan(scanId: string): Promise<void> {
-  // Spec §6: DELETE /api/v1/scans/{scan_id}
+  // Spec §6: DELETE /api/v1/scans/{scan_id}. A scan that is already gone is
+  // treated as success so stale local history can always be cleaned up.
   const res = await fetch(`${BASE}/api/v1/scans/${scanId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('delete_failed');
+  if (!res.ok && res.status !== 404) throw new Error('delete_failed');
 }
 
 export const ReportSignedUrl = z.object({

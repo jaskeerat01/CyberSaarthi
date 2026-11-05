@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { createScan } from '../../shared/api';
+import { upsertHistory } from '../../shared/history';
 import HelplineBanner from '../../shared/HelplineBanner';
 
 const MAX_CHARS = 5000;
@@ -17,7 +18,10 @@ export default function SubmissionPage() {
 
   const mutation = useMutation({
     mutationFn: () => createScan(content, lostMoney),
-    onSuccess: (data) => navigate(`/scan/${data.scan_id}`),
+    onSuccess: (data) => {
+      upsertHistory(data.scan_id, data.status);
+      navigate(`/scan/${data.scan_id}`);
+    },
     onError: () => setError(t('error.generic')),
   });
 

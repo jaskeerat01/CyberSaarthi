@@ -47,6 +47,15 @@ describe('HistoryPage', () => {
     expect(JSON.parse(localStorage.getItem('cybersathi-history') || '[]')).toHaveLength(0);
   });
 
+  it('keeps the scan and shows an error when deletion fails', async () => {
+    deleteScan.mockRejectedValueOnce(new Error('delete_failed'));
+    renderWith([{ scan_id: '11111111-2222-3333-4444-555555555555', status: 'COMPLETED' }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Something went wrong/i);
+    expect(screen.getByText(/11111111… · COMPLETED/)).toBeDefined();
+    expect(JSON.parse(localStorage.getItem('cybersathi-history') || '[]')).toHaveLength(1);
+  });
+
   it('keeps the scan when delete is cancelled', () => {
     (window.confirm as ReturnType<typeof vi.fn>).mockReturnValue(false);
     renderWith([{ scan_id: '11111111-2222-3333-4444-555555555555', status: 'COMPLETED' }]);

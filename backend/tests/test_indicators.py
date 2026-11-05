@@ -38,6 +38,24 @@ class TestStateTransitions:
         assert ind.status == ThreatIndicatorStatus.REPORTED
 
 
+@pytest.mark.django_db
+class TestPairLookup:
+    def test_only_exact_type_digest_pairs_match(self):
+        from indicators.models import threat_indicators_for
+
+        digest, _ = hmac_digest("shared-value.example")
+        upsert_indicator("DOMAIN", digest)
+        upsert_indicator("EMAIL", digest)
+
+        rows = threat_indicators_for({("DOMAIN", digest)})
+        assert list(rows.values_list("indicator_type", flat=True)) == ["DOMAIN"]
+
+    def test_empty_pairs_match_nothing(self):
+        from indicators.models import threat_indicators_for
+
+        assert not threat_indicators_for(set()).exists()
+
+
 @pytest.mark.django_db(transaction=True)
 class TestConcurrentUpsert:
     def test_parallel_upserts_safe(self):

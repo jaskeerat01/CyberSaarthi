@@ -59,7 +59,7 @@
       "typeVersion": 1,
       "position": [176, 320],
       "parameters": {
-        "content": "## CyberSathi error handler\nSet this workflow as the error workflow for CyberSathi - Scan Investigation and CyberSathi - OpenPhish Feed Sync in each workflow's settings. The failure event carries the n8n execution_id. The API maps it to a scan through the execution_id returned by the 202 acknowledgement."
+        "content": "## CyberSathi error handler\nSet this workflow as the error workflow for CyberSathi - Scan Investigation and CyberSathi - OpenPhish Feed Sync in each workflow's settings. The failure event carries workflow name, n8n execution id, failed node and message. The API records execution metadata as a structured warning log; error messages are not logged because they may contain user content."
       }
     }
   ],

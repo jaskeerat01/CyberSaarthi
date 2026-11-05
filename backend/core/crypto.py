@@ -29,7 +29,9 @@ def encrypt(plaintext: str) -> str:
 
 
 def decrypt(ciphertext: str) -> str:
-    """Decrypt raw content."""
+    """Decrypt raw content. Empty ciphertext means content was purged/deleted."""
+    if not ciphertext:
+        return ""
     return _get_fernet().decrypt(ciphertext.encode()).decode()
 
 

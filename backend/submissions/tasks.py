@@ -26,6 +26,9 @@ def purge_expired_raw_content() -> int:
     for sub in expired.iterator():
         sub.raw_content_encrypted = ""
         sub.save(update_fields=["raw_content_encrypted"])
+        # Extracted values (phone, UPI, URLs…) are PII too; keep only the
+        # keyed digest after the retention window.
+        sub.indicators.update(normalised_value_encrypted="")
         count += 1
     if count:
         logger.info("retention_purged", extra={"count": count})

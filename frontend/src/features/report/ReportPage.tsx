@@ -11,7 +11,11 @@ export default function ReportPage() {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState(false);
 
-  const { data } = useQuery({ queryKey: ['scan', scanId], queryFn: () => getScan(scanId) });
+  const { data, isError } = useQuery({
+    queryKey: ['scan', scanId],
+    queryFn: () => getScan(scanId),
+  });
+  const completed = data?.status === 'COMPLETED';
 
   const download = async () => {
     setDownloading(true);
@@ -25,8 +29,15 @@ export default function ReportPage() {
       const a = document.createElement('a');
       a.href = objectUrl;
       a.download = `cybersathi-${scanId}.pdf`;
-      a.click();
-      URL.revokeObjectURL(objectUrl);
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      try {
+        a.click();
+      } finally {
+        a.remove();
+        // Give the browser a moment to start the download before revoking.
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      }
     } catch {
       setError(true);
     } finally {
@@ -43,11 +54,16 @@ export default function ReportPage() {
       {data?.reported_financial_loss && <HelplineBanner />}
       <button
         onClick={download}
-        disabled={downloading}
+        disabled={downloading || !completed}
         className="bg-blue-600 text-white px-6 py-2 rounded disabled:opacity-50"
       >
         {downloading ? t('report.preparing') : t('report.download')}
       </button>
+      {isError && (
+        <p role="alert" className="mt-3 text-sm text-red-600">
+          {t('error.generic')}
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-red-600">
           {t('error.generic')}

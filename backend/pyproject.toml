@@ -43,7 +43,8 @@ build-backend = "setuptools.build_meta"
 include = ["config*", "core*", "submissions*", "indicators*", "intel*", "assessment*", "reports*", "telegram*"]
 
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "config.settings"
+# DJANGO_SETTINGS_MODULE is set in conftest.py so the test environment
+# variables are in place before pytest-django configures Django settings.
 testpaths = ["tests"]
 addopts = "--cov --cov-report=term-missing -q"
 

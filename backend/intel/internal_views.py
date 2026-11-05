@@ -21,6 +21,7 @@ from .serializers import (
     EnrichmentSerializer,
     OpenPhishIngestSerializer,
     StatusSerializer,
+    WorkflowFailureSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,7 +101,10 @@ def enrichment(request: Request, scan_id: str) -> Response:
     except (ScamSubmission.DoesNotExist, ValueError):
         return problem("Scan not found", 404)
 
-    observations = request.data.get("observations", [])
+    serializer = EnrichmentSerializer(data=request.data)
+    if not serializer.is_valid():
+        return problem("Validation failed", 400, str(serializer.errors))
+    observations = serializer.validated_data["observations"]
     log_event(submission, "enrichment_received", summary={"count": len(observations)})
 
     from core.views import PROVIDER_OUTCOMES
@@ -108,10 +112,10 @@ def enrichment(request: Request, scan_id: str) -> Response:
     for obs in observations:
         from core.crypto import hmac_digest
 
-        digest, _ = hmac_digest(obs.get("normalised_value", ""))
-        provider = obs.get("provider", "unknown")
-        outcome = obs.get("outcome", "ERROR")
-        indicator, _ = upsert_indicator(obs.get("type", "URL"), digest)
+        digest, _ = hmac_digest(obs["normalised_value"])
+        provider = obs["provider"]
+        outcome = obs["outcome"]
+        indicator, _ = upsert_indicator(obs["type"], digest)
         IndicatorObservation.objects.create(
             indicator=indicator,
             provider=provider,
@@ -142,10 +146,23 @@ def complete(request: Request, scan_id: str) -> Response:
         submission = ScamSubmission.objects.get(id=scan_id)
     except (ScamSubmission.DoesNotExist, ValueError):
         return problem("Scan not found", 404)
-    log_event(submission, "enrichment_done", summary={"status": request.data.get("status")})
+    serializer = CompleteSerializer(data=request.data)
+    if not serializer.is_valid():
+        return problem("Validation failed", 400, str(serializer.errors))
+    log_event(
+        submission,
+        "enrichment_done",
+        summary={"status": serializer.validated_data["status"]},
+    )
     from assessment.services import run_assessment
 
-    run_assessment(str(scan_id))
+    # providers_ran must reflect THIS scan's enrichment arrival. Observations
+    # are matched globally by (type, digest), so another scan's observations
+    # for the same indicator must not mark this scan as "providers ran".
+    enrichment_seen = submission.events.filter(event_type="enrichment_received").exists()
+    # An empty observation set means no provider actually ran. Treat that as
+    # inconclusive rather than "no known threat detected".
+    run_assessment(str(scan_id), providers_ran=enrichment_seen)
     return Response({"status": "complete"})
 
 
@@ -169,9 +186,10 @@ def openphish_ingest(request: Request) -> Response:
     from intel.models import OpenPhishEntry
     from submissions.normalisation import normalise_url
 
-    urls = request.data.get("urls", [])
-    if not isinstance(urls, list):
-        return problem("Invalid payload", 400, "'urls' must be a list of strings")
+    serializer = OpenPhishIngestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return problem("Invalid payload", 400, str(serializer.errors))
+    urls = serializer.validated_data["urls"]
 
     pairs: list[tuple[bytes, str]] = []
     for raw in urls:
@@ -186,3 +204,37 @@ def openphish_ingest(request: Request) -> Response:
     created = OpenPhishEntry.ingest_urls(pairs)
     logger.info("openphish_ingest", extra={"feed_urls": len(urls), "new_entries": created})
     return Response({"received": len(urls), "created": created})
+
+
+@extend_schema(
+    request=WorkflowFailureSerializer,
+    responses={200: StatusSerializer},
+    description=_INTERNAL_DESC,
+    tags=["internal"],
+)
+@api_view(["POST"])
+def workflow_failure(request: Request) -> Response:
+    """POST /internal/workflow-failures — n8n Error Trigger target.
+
+    Failure payloads can embed user content in ``error_message``, so only the
+    execution metadata is written to the structured log. Operators use the
+    execution id to inspect the failed run in n8n.
+    """
+    if not _check_token(request):
+        return problem("Unauthorized", 401)
+
+    serializer = WorkflowFailureSerializer(data=request.data)
+    if not serializer.is_valid():
+        return problem("Invalid payload", 400, str(serializer.errors))
+    data = serializer.validated_data
+
+    logger.warning(
+        "n8n_workflow_failure",
+        extra={
+            "workflow_name": data["workflow_name"],
+            "execution_id": data["execution_id"],
+            "failed_node": data["failed_node"],
+            "occurred_at": data["occurred_at"],
+        },
+    )
+    return Response({"status": "recorded"})

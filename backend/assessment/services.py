@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 
 from assessment.engine import (
     EXPLANATION_KEYS,
@@ -37,7 +38,29 @@ def build_assessment(
         for ind in submission.indicators.all()
         if ind.indicator_type == "DOMAIN"
     ]
-    tech_evidence, tech_rules = evaluate_technical(domains, observations)
+    # RDAP registration dates arrive in response_reference (ISO). The
+    # youngest domain drives the TECH_NEW_DOMAIN weak signal; older-than-30d
+    # registrations just show up as evidence. Malformed dates are ignored.
+    from datetime import datetime
+
+    domain_age_days: int | None = None
+    for obs in observations:
+        if obs.get("provider") != "rdap":
+            continue
+        ref = obs.get("response_reference")
+        if not ref:
+            continue
+        try:
+            registered = datetime.fromisoformat(str(ref))
+        except ValueError:
+            continue
+        if registered.tzinfo is None:
+            registered = registered.replace(tzinfo=UTC)
+        age = (datetime.now(UTC) - registered).days
+        domain_age_days = age if domain_age_days is None else min(domain_age_days, age)
+    tech_evidence, tech_rules = evaluate_technical(
+        domains, observations, domain_age_days=domain_age_days
+    )
 
     has_match = any(o.get("outcome") == "MATCH" for o in observations)
     reliable_match = any(
@@ -58,7 +81,12 @@ def build_assessment(
         if observations
         else True
     )
-    has_weak = "TECH_NEW_DOMAIN" in tech_rules or "TECH_URL_PRESENT" in tech_rules
+    # Weak signals: a newly registered domain, or a non-reliable provider
+    # MATCH (e.g. AbuseIPDB reputation). A verified match short-circuits to
+    # CONFIRMED_MALICIOUS before this matters. NOTE: mere URL/domain presence
+    # (TECH_URL_PRESENT) is structural, not a signal — counting it here would
+    # label every URL scan SUSPICIOUS and make NO_KNOWN unreachable for URLs.
+    has_weak = "TECH_NEW_DOMAIN" in tech_rules or "TECH_PROVIDER_MATCH" in tech_rules
 
     classification = classify(
         has_verified_match=reliable_match,
@@ -102,23 +130,28 @@ def store_assessment(
 def run_assessment(scan_id: str, *, providers_ran: bool = True) -> ScanAssessment:
     """Celery entrypoint: load submission, gather observations, assess."""
     submission = ScamSubmission.objects.get(id=scan_id)
-    from indicators.models import IndicatorObservation, ThreatIndicator
+    from indicators.models import IndicatorObservation, threat_indicators_for
 
     inds = list(submission.indicators.all())
     type_digests = {(i.indicator_type, bytes(i.digest)) for i in inds}
-    threat_rows = ThreatIndicator.objects.filter(
-        indicator_type__in=[t for t, _ in type_digests],
-        digest__in=[d for _, d in type_digests],
-    )
+    threat_rows = threat_indicators_for(type_digests)
     obs = [
-        {"provider": o.provider, "outcome": o.outcome}
+        {
+            "provider": o.provider,
+            "outcome": o.outcome,
+            # RDAP registration dates travel in response_reference;
+            # build_assessment derives the new-domain weak signal from it.
+            "response_reference": o.response_reference or "",
+        }
         for o in IndicatorObservation.objects.filter(indicator__in=threat_rows)
     ]
-    # Local OpenPhish feed match (ingested every 12h — never per-request lookup)
+    # Local OpenPhish feed match (ingested every 12h — never per-request lookup).
+    # OpenPhish entries are URLs, so only URL indicators are eligible.
     from intel.models import OpenPhishEntry
 
-    feed_hits = OpenPhishEntry.matching_digests([bytes(i.digest) for i in inds])
+    url_digests = [bytes(i.digest) for i in inds if i.indicator_type == "URL"]
+    feed_hits = OpenPhishEntry.matching_digests(url_digests)
     for i in inds:
-        if bytes(i.digest) in feed_hits:
+        if i.indicator_type == "URL" and bytes(i.digest) in feed_hits:
             obs.append({"provider": "openphish", "outcome": "MATCH"})
     return store_assessment(submission, obs, providers_ran=providers_ran)

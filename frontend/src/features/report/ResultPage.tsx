@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams } from 'react-router-dom';
+import { Link, Navigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { getScan } from '../../shared/api';
+import { getScan, defang } from '../../shared/api';
 import HelplineBanner from '../../shared/HelplineBanner';
 import DefangedIndicators from '../../shared/DefangedIndicators';
 
@@ -16,13 +16,41 @@ const CLASSIFICATION_LABELS: Record<string, string> = {
 
 /** Pull indicator values (domains…) out of the stored evidence structure. */
 function extractIndicators(evidence: unknown): string[] {
-  const entries = Array.isArray(evidence) ? evidence : evidence ? [evidence] : [];
-  const out: string[] = [];
-  for (const entry of entries) {
-    if (entry && typeof entry === 'object' && 'domains' in entry) {
-      const d = (entry as { domains?: unknown }).domains;
-      if (Array.isArray(d)) out.push(...d.filter((x): x is string => typeof x === 'string'));
+  const out = new Set<string>();
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
     }
+    if (!node || typeof node !== 'object') return;
+    const record = node as Record<string, unknown>;
+    if (Array.isArray(record.domains)) {
+      record.domains.forEach((value) => {
+        if (typeof value === 'string') out.add(value);
+      });
+    }
+    // The API wraps evidence as {items: [...]}; older fixtures use a bare list.
+    if (Array.isArray(record.items)) record.items.forEach(visit);
+  };
+  visit(evidence);
+  return [...out];
+}
+
+/**
+ * Defang domains inside the raw evidence dump as well: the backend stores
+ * domains in `technical_evidence.items[].domains`, and the evidence <pre>
+ * must not show copy-pasteable live URLs anywhere on the page.
+ */
+function defangDomains(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(defangDomains);
+  if (!node || typeof node !== 'object') return node;
+  const record = node as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    out[key] =
+      key === 'domains' && Array.isArray(value)
+        ? value.map((d) => (typeof d === 'string' ? defang(d) : d))
+        : defangDomains(value);
   }
   return out;
 }
@@ -44,6 +72,9 @@ export default function ResultPage() {
         {t('error.generic')}
       </p>
     );
+  // The result view only makes sense once the assessment exists; send the
+  // user back to the status screen while a scan is still running or failed.
+  if (data.status !== 'COMPLETED') return <Navigate to={`/scan/${scanId}`} replace />;
 
   const labelKey = CLASSIFICATION_LABELS[data.classification || ''] || 'assessment.inconclusive';
   const indicators = extractIndicators(data.technical_evidence);
@@ -63,7 +94,7 @@ export default function ResultPage() {
       <section className="mt-4">
         <h2 className="font-semibold">{t('result.technicalEvidence')}</h2>
         <pre className="bg-gray-100 p-3 rounded text-xs overflow-auto">
-          {JSON.stringify(data.technical_evidence || {}, null, 2)}
+          {JSON.stringify(defangDomains(data.technical_evidence || {}), null, 2)}
         </pre>
         <h2 className="font-semibold mt-4">{t('result.socialEvidence')}</h2>
         <pre className="bg-gray-100 p-3 rounded text-xs overflow-auto">

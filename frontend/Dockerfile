@@ -6,12 +6,8 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine
-WORKDIR /app
-# Non-root runtime user (spec §17 — no root in containers)
-RUN addgroup -g 10001 -S app && adduser -S -u 10001 -G app app
-RUN npm install -g serve && npm cache clean --force
-COPY --from=build --chown=app:app /app/dist ./dist
-USER app
-EXPOSE 5173
-CMD ["serve", "-s", "dist", "-l", "5173"]
+# Unprivileged nginx: runs as uid 101/gid 101 and listens on 8080.
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build --chown=101:101 /app/dist /usr/share/nginx/html
+EXPOSE 8080

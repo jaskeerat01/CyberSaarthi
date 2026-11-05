@@ -7,7 +7,7 @@ import logging
 from django.conf import settings
 from django.db import transaction
 
-from core.crypto import hmac_digest
+from core.crypto import encrypt, hmac_digest
 from submissions.models import ExtractedIndicator, ScamSubmission, WorkflowEvent
 
 from . import normalisation as norm
@@ -45,24 +45,28 @@ def create_submission(raw_content: str, channel: str = "web", reported_financial
         for ip in norm.extract_ips(text):
             indicators.append(("IP", ip))
 
+        # The n8n contract accepts at most 50 indicators; de-duplicate and cap
+        # here so a dense message cannot make the workflow reject the scan and
+        # leave it stuck before completion.
+        seen: set[tuple[str, str]] = set()
+        unique_indicators: list[tuple[str, str]] = []
+        for pair in indicators:
+            if pair not in seen:
+                seen.add(pair)
+                unique_indicators.append(pair)
+        indicators = unique_indicators[:50]
+
         for itype, value in indicators:
             digest, version = hmac_digest(value)
             ExtractedIndicator.objects.get_or_create(
                 submission=submission,
                 indicator_type=itype,
                 digest=digest,
-                defaults={"key_version": version},
+                defaults={
+                    "key_version": version,
+                    "normalised_value_encrypted": encrypt(value),
+                },
             )
-            # Set encrypted value on the (possibly existing) row
-            ExtractedIndicator.objects.filter(
-                submission=submission, indicator_type=itype, digest=digest
-            ).update(normalised_value_encrypted=submission.raw_content_encrypted)
-            # NOTE: stores normalised value encrypted (demo: reuses content encryption)
-            obj = ExtractedIndicator.objects.get(
-                submission=submission, indicator_type=itype, digest=digest
-            )
-            obj.normalised_value = value
-            obj.save(update_fields=["normalised_value_encrypted"])
 
         WorkflowEvent.objects.create(
             scan=submission,
@@ -86,3 +90,22 @@ def log_event(scan: ScamSubmission, event_type: str, attempt: int = 1, summary: 
     WorkflowEvent.objects.create(
         scan=scan, event_type=event_type, attempt=attempt, payload_summary=summary or {}
     )
+
+
+def start_scan_pipeline(submission: ScamSubmission) -> None:
+    """Resolve via the fast path, otherwise enqueue the Celery/n8n slow path.
+
+    Shared by the web API and Telegram webhook so every entry point runs the
+    same investigation pipeline.
+    """
+    from assessment.services import store_assessment
+    from config.celery import investigate_scan
+    from intel.fastpath import fast_path_check
+
+    fast_result = fast_path_check(submission)
+    if fast_result is None:
+        investigate_scan.delay(str(submission.id))
+        log_event(submission, "slow_path_enqueued")
+        return
+    store_assessment(submission, fast_result)
+    log_event(submission, "fast_path_resolved")

@@ -23,6 +23,22 @@ class TestPhishTank:
             # Disabled without key → UNSUPPORTED, still a valid outcome
             assert result.outcome in ("UNSUPPORTED", "MATCH", "NO_MATCH")
 
+    def test_match_with_quota_key_missing(self):
+        """Regression: cache.incr() raises when the quota key is absent."""
+        from django.core.cache import cache
+        from django.test import override_settings
+
+        with override_settings(FEATURE_PHISHTANK=True, PHISHTANK_API_KEY="test-key"):
+            cache.clear()
+            with patch("intel.providers.httpx.post") as mock_post:
+                mock_post.return_value = httpx.Response(
+                    200, json={"results": {"verified": True, "valid": True}}
+                )
+                mock_post.return_value.raise_for_status = lambda: None
+                result = PhishTankProvider().check_url("https://evil.example/")
+            assert result.outcome == "MATCH"
+            assert cache.get("quota:phishtank") == 1
+
     def test_unsupported_types(self):
         provider = PhishTankProvider()
         assert provider.check_domain("example.com").outcome == "UNSUPPORTED"

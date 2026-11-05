@@ -14,7 +14,15 @@ class _IpScopedThrottle(SimpleRateThrottle):
     scope: str = "default"
 
     def get_cache_key(self, request, view):
-        ident = request.META.get("REMOTE_ADDR", "unknown")
+        # The frontend nginx proxy sets X-Real-IP (to the client IP) and
+        # appends to X-Forwarded-For; REMOTE_ADDR would be the proxy for
+        # every client, collapsing all buckets into one. X-Real-IP is
+        # overwritten by nginx, so it cannot be spoofed through the proxy.
+        # Fall back to the first forwarded hop, then REMOTE_ADDR.
+        forwarded = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+        ident = (
+            request.META.get("HTTP_X_REAL_IP") or forwarded or request.META.get("REMOTE_ADDR", "unknown")
+        )
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 

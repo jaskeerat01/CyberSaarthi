@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getScan } from '../../shared/api';
+import { upsertHistory } from '../../shared/history';
 import HelplineBanner from '../../shared/HelplineBanner';
 
 export default function ScanStatusPage() {
@@ -20,7 +21,9 @@ export default function ScanStatusPage() {
   });
 
   useEffect(() => {
-    if (data?.status === 'COMPLETED') navigate(`/scan/${scanId}/result`);
+    if (!data) return;
+    upsertHistory(scanId, data.status);
+    if (data.status === 'COMPLETED') navigate(`/scan/${scanId}/result`);
   }, [data, navigate, scanId]);
 
   if (isError)

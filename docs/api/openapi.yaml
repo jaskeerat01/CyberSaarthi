@@ -129,7 +129,10 @@ paths:
             schema: { type: object }
       responses:
         '200': { description: Accepted (deduplicated by update_id) }
+        '400': { $ref: '#/components/responses/ProblemDetails' }
         '403': { $ref: '#/components/responses/ProblemDetails' }
+        '503':
+          description: Webhook secret is not configured; the endpoint fails closed.
   /internal/scans/{scan_id}/enrichment:
     post:
       summary: Internal — n8n posts observations (service-token auth, not public)
@@ -145,10 +148,25 @@ paths:
             schema:
               type: object
               properties:
-                observations: { type: array, items: { type: object } }
+                observations:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, normalised_value, provider, outcome]
+                    properties:
+                      type: { type: string, enum: [URL, DOMAIN, IP, PHONE, UPI, EMAIL] }
+                      normalised_value: { type: string, maxLength: 2048 }
+                      provider: { type: string, maxLength: 64 }
+                      outcome:
+                        type: string
+                        enum: [MATCH, NO_MATCH, ERROR, RATE_LIMITED, UNSUPPORTED]
+                      response_reference: { type: string, maxLength: 500 }
+                      error_detail: { type: string, maxLength: 500 }
       responses:
         '200': { description: Recorded }
+        '400': { $ref: '#/components/responses/ProblemDetails' }
         '401': { $ref: '#/components/responses/ProblemDetails' }
+        '404': { $ref: '#/components/responses/ProblemDetails' }
   /internal/scans/{scan_id}/complete:
     post:
       summary: Internal — mark enrichment done
@@ -167,6 +185,62 @@ paths:
                 status: { type: string, enum: [enrichment_done] }
       responses:
         '200': { description: Marked complete }
+        '400': { $ref: '#/components/responses/ProblemDetails' }
+        '401': { $ref: '#/components/responses/ProblemDetails' }
+        '404': { $ref: '#/components/responses/ProblemDetails' }
+  /internal/openphish/ingest:
+    post:
+      summary: Internal — n8n ingests the OpenPhish feed (service-token auth, not public)
+      description: Stores feed digests locally every 12 hours; never queried per user request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source: { type: string }
+                fetched_at: { type: string }
+                urls:
+                  type: array
+                  maxItems: 10000
+                  items: { type: string, maxLength: 2048 }
+      responses:
+        '200':
+          description: Ingested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: integer }
+                  created: { type: integer }
+        '400': { $ref: '#/components/responses/ProblemDetails' }
+        '401': { $ref: '#/components/responses/ProblemDetails' }
+  /internal/workflow-failures:
+    post:
+      summary: Internal — n8n Error Trigger reports a failed execution
+      description: >
+        Records execution metadata as a structured warning log. The n8n
+        execution id lets operators inspect the failed run; error messages are
+        not logged because they may contain submitted user content.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workflow_name, execution_id]
+              properties:
+                workflow_name: { type: string, maxLength: 128 }
+                execution_id: { type: string, maxLength: 64 }
+                failed_node: { type: string, maxLength: 128 }
+                error_message: { type: string, maxLength: 1000 }
+                occurred_at: { type: string, maxLength: 64 }
+      responses:
+        '200': { description: Recorded }
+        '400': { $ref: '#/components/responses/ProblemDetails' }
+        '401': { $ref: '#/components/responses/ProblemDetails' }
 components:
   responses:
     ProblemDetails:

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { act } from '@testing-library/react';
+import { act, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ScanStatusPage from './ScanStatusPage';
@@ -30,6 +30,7 @@ function wrap() {
 
 describe('ScanStatusPage', () => {
   beforeEach(() => {
+    localStorage.clear();
     // NOTE: block body is deliberate — vitest invokes hook RETURN VALUES as
     // post-test cleanups, so an expression body returning the mock stub would
     // call the (rejecting) implementation again after the test.
@@ -57,6 +58,21 @@ describe('ScanStatusPage', () => {
     wrap();
     expect(await screen.findByRole('heading', { name: 'Analysing…' })).toBeDefined();
     expect(screen.getByText('RUNNING')).toBeDefined();
+  });
+
+  it('records the latest status in local history', async () => {
+    getScan.mockResolvedValue({
+      scan_id: 'abc',
+      status: 'RUNNING',
+      reported_financial_loss: false,
+    });
+    wrap();
+    await screen.findByRole('heading', { name: 'Analysing…' });
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem('cybersathi-history') || '[]')).toEqual([
+        expect.objectContaining({ scan_id: 'abc', status: 'RUNNING' }),
+      ])
+    );
   });
 
   it('shows 1930 helpline immediately when financial loss reported', async () => {

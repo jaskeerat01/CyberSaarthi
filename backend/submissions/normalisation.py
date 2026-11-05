@@ -6,7 +6,9 @@ import re
 import unicodedata
 from urllib.parse import urlparse
 
-_ZERO_WIDTH = {"\u200b", "‌", "‍", "⁠", "﻿", "­"}
+_ZERO_WIDTH = {"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff", "\u00ad"}
+
+_ALLOWED_URL_SCHEMES = {"http", "https"}
 
 _URL_RE = re.compile(r"https?://[^\s\"'<>\]\)}]+|www\.[^\s\"'<>\]\)}]+", re.IGNORECASE)
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
@@ -23,8 +25,18 @@ def normalise_text(raw: str, max_chars: int = 5000) -> str:
     if len(raw) > max_chars:
         raise ValueError(f"Input exceeds maximum of {max_chars} characters")
     text = unicodedata.normalize("NFKC", raw)
-    text = "".join(ch for ch in text if ch not in _ZERO_WIDTH and unicodedata.category(ch)[0] != "C")
-    return text.strip()
+    cleaned: list[str] = []
+    for ch in text:
+        if ch in _ZERO_WIDTH:
+            continue
+        # Keep line/tab boundaries as spaces so words are not glued together;
+        # other control characters are removed entirely.
+        if unicodedata.category(ch)[0] == "C":
+            if ch in "\n\r\t":
+                cleaned.append(" ")
+            continue
+        cleaned.append(ch)
+    return re.sub(r"[ \t]+", " ", "".join(cleaned)).strip()
 
 
 def detect_language(text: str) -> str:
@@ -50,24 +62,40 @@ def extract_urls(text: str) -> list[str]:
 
 
 def normalise_url(raw: str) -> str | None:
-    """Normalise a single URL. Returns None if invalid or has embedded credentials."""
+    """Normalise a single URL. Returns None if invalid or has embedded credentials.
+
+    Query strings and fragments are deliberately dropped: matching is done on
+    the host + path only, and full query strings can carry identifying tokens
+    that must not be stored (see docs/threat-model.md).
+    """
     candidate = raw.strip()
+    if not candidate or any(ch.isspace() for ch in candidate):
+        return None
     if "://" not in candidate:
         candidate = "https://" + candidate
-    parsed = urlparse(candidate)
-    if not parsed.hostname:
+    try:
+        parsed = urlparse(candidate)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        # Invalid/missing/non-numeric ports raise ValueError in urllib.
+        return None
+    scheme = parsed.scheme.lower()
+    if scheme not in _ALLOWED_URL_SCHEMES or not hostname:
         return None
     if parsed.username or parsed.password:
         return None  # Reject URLs containing embedded credentials
-    host = parsed.hostname.lower().rstrip(".")
+    host = hostname.lower().rstrip(".")
     try:
         host = host.encode("idna").decode("ascii")
     except UnicodeError:
         return None
-    port = parsed.port
-    scheme = parsed.scheme.lower()
+    if not host:
+        return None
+    # IPv6 literals must stay bracketed in the authority component.
+    netloc_host = f"[{host}]" if ":" in host else host
     default_port = (scheme == "https" and port == 443) or (scheme == "http" and port == 80)
-    netloc = host if (port is None or default_port) else f"{host}:{port}"
+    netloc = netloc_host if (port is None or default_port) else f"{netloc_host}:{port}"
     path = parsed.path or "/"
     return f"{scheme}://{netloc}{path}"
 

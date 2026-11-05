@@ -8,5 +8,4 @@ Status: pending dataset. Metrics to report once a labelled dataset is available 
 - Cache hit ratio, provider-outage behaviour
 - PDF generation success rate
 
-Backend unit/API tests: 57 passing (normalisation, classification, indicators, providers, API, reports).
-Frontend component tests + Playwright E2E implemented; run after `npm install`.
+Backend unit/API tests: 108 passing (normalisation, classification, indicators, providers, API, reports) with 89.76% line coverage. Frontend: 33 Vitest component/a11y tests passing; Playwright E2E implemented for `./e2e` (requires the full stack).

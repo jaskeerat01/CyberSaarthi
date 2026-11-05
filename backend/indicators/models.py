@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 
 from django.db import models, transaction
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 
@@ -65,6 +67,22 @@ class ThreatIndicator(models.Model):
             raise ValueError("Promotion requires trusted source or human review")
         self.status = new_status
         self.save(update_fields=["status", "last_seen"])
+
+
+def threat_indicators_for(
+    pairs: Iterable[tuple[str, bytes]],
+) -> QuerySet[ThreatIndicator]:
+    """Return indicators matching (indicator_type, digest) pairs exactly.
+
+    Filtering ``indicator_type__in`` and ``digest__in`` separately returns the
+    cartesian product; a digest is only meaningful together with its type.
+    """
+    query = Q()
+    for indicator_type, digest in pairs:
+        query |= Q(indicator_type=indicator_type, digest=digest)
+    if not query:
+        return ThreatIndicator.objects.none()
+    return ThreatIndicator.objects.filter(query)
 
 
 def upsert_indicator(indicator_type: str, digest: bytes) -> tuple[ThreatIndicator, bool]:

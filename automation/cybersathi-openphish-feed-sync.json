@@ -30,7 +30,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const first = $input.first().json;\nconst raw = typeof first.data === 'string' ? first.data : '';\nconst lines = raw.split('\\n').map(l => l.trim()).filter(l => l.length > 0 && l.length <= 2048 && l.indexOf('http') === 0);\nconst unique = Array.from(new Set(lines)).slice(0, 10000);\nreturn [{ json: { source: 'openphish', fetched_at: new Date().toISOString(), count: unique.length, urls: unique } }];"
+        "jsCode": "const first = $input.first().json;\nconst raw = typeof first.data === 'string' ? first.data : (typeof first.body === 'string' ? first.body : '');\nconst lines = raw.split('\\n').map(l => l.trim()).filter(l => l.length > 0 && l.length <= 2048 && l.indexOf('http') === 0);\nconst unique = Array.from(new Set(lines)).slice(0, 10000);\nreturn [{ json: { source: 'openphish', fetched_at: new Date().toISOString(), count: unique.length, urls: unique } }];"
       },
       "id": "e85b00d7-d4c1-42c0-b399-79730b75643c",
       "name": "Parse Feed URLs",
@@ -41,7 +41,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.INTERNAL_API_BASE_URL }}/internal/feeds/openphish",
+        "url": "={{ $env.INTERNAL_API_BASE_URL }}/internal/openphish/ingest",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpTemplatedCustomAuth",
         "sendBody": true,
@@ -57,7 +57,7 @@
     },
     {
       "parameters": {
-        "content": "## OpenPhish feed sync\nRuns every 12 hours, matching the OpenPhish community feed refresh interval. Stores the feed in the local indicator table through the internal API. The feed is never queried per request. The internal endpoint /internal/feeds/openphish must exist in the API before this workflow is activated."
+        "content": "## OpenPhish feed sync\nRuns every 12 hours, matching the OpenPhish community feed refresh interval. Stores the feed in the local indicator table through the internal API. The feed is never queried per request. The internal endpoint /internal/openphish/ingest stores it."
       },
       "id": "5f3d6758-1722-4380-b487-7309d3ad9773",
       "name": "Sticky Note 409453e8",

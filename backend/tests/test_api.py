@@ -81,6 +81,30 @@ class TestScansAPI:
         resp = client.post("/api/v1/scans", {"raw_content": "x" * 6000}, format="json")
         assert resp.status_code in (400, 413)
 
+    def test_content_dedupe_does_not_swallow_reported_loss(self):
+        client = APIClient()
+        payload = {"raw_content": "same message https://dedupe-loss.example"}
+        r1 = client.post("/api/v1/scans", payload, format="json")
+        assert r1.data["reported_financial_loss"] is False
+
+        r2 = client.post(
+            "/api/v1/scans",
+            {**payload, "reported_financial_loss": True},
+            format="json",
+        )
+        assert r2.status_code == 202
+        assert r2.data["scan_id"] != r1.data["scan_id"]
+        assert r2.data["reported_financial_loss"] is True
+
+    def test_configured_max_input_chars_is_enforced(self):
+        from django.test import override_settings
+
+        with override_settings(MAX_INPUT_CHARS=10):
+            resp = APIClient().post(
+                "/api/v1/scans", {"raw_content": "x" * 11}, format="json"
+            )
+        assert resp.status_code == 400
+
     def test_never_says_safe(self):
         client = APIClient()
         r = client.post("/api/v1/scans", {"raw_content": "clean text here"}, format="json")
@@ -117,6 +141,19 @@ class TestInternalAPI:
             HTTP_X_INTERNAL_SERVICE_TOKEN="test-internal-token",
         )
         assert resp.status_code == 200
+
+    def test_internal_enrichment_rejects_malformed_payload(self):
+        from submissions.services import create_submission
+
+        sub = create_submission("https://internal3.example/test")
+        client = APIClient()
+        resp = client.post(
+            f"/internal/scans/{sub.id}/enrichment",
+            {"observations": "not-a-list"},
+            format="json",
+            HTTP_X_INTERNAL_SERVICE_TOKEN="test-internal-token",
+        )
+        assert resp.status_code == 400
 
 
 @pytest.mark.django_db

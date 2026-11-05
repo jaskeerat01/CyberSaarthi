@@ -58,7 +58,9 @@ describe('ReportPage (signed-URL two-step download)', () => {
     });
     fetchReportPdf.mockResolvedValue(new Blob(['pdf-bytes']));
     wrap();
-    fireEvent.click(await screen.findByRole('button', { name: /Download PDF/i }));
+    const button = await screen.findByRole('button', { name: /Download PDF/i });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
     await waitFor(() =>
       expect(fetchReportPdf).toHaveBeenCalledWith('/api/v1/scans/abc/report.pdf?token=x')
     );
@@ -77,7 +79,9 @@ describe('ReportPage (signed-URL two-step download)', () => {
     });
     getReportSignedUrl.mockRejectedValue(new Error('report_url_failed'));
     wrap();
-    fireEvent.click(await screen.findByRole('button', { name: /Download PDF/i }));
+    const button = await screen.findByRole('button', { name: /Download PDF/i });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
     expect(await screen.findByRole('alert')).toHaveTextContent(/Something went wrong/i);
   });
 

@@ -19,7 +19,12 @@ from core.throttles import SubmissionRateThrottle
 from . import normalisation as norm
 from .models import ScamSubmission
 from .serializers import ScanCreateSerializer, ScanDetailSerializer
-from .services import create_submission, find_existing_by_content, log_event
+from .services import (
+    create_submission,
+    find_existing_by_content,
+    log_event,
+    start_scan_pipeline,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +66,12 @@ def create_scan(request: Request) -> Response:
 
     digest, _ = hmac_digest(text)
     existing = find_existing_by_content(digest)
-    if existing:
+    # Never dedupe away a newly reported financial loss: that would hide the
+    # immediate 1930 helpline banner from the user who just reported it.
+    newly_reported_loss = data.get("reported_financial_loss") and not (
+        existing and existing.reported_financial_loss
+    )
+    if existing and not newly_reported_loss:
         return Response(_scan_payload(existing), status=status.HTTP_202_ACCEPTED)
 
     submission = create_submission(
@@ -73,20 +83,9 @@ def create_scan(request: Request) -> Response:
         cache.set(f"idem:{idem_key}", str(submission.id), timeout=IDEMPOTENCY_WINDOW_SECONDS)
     log_event(submission, "scan_queued")
 
-    # Fast-path then Celery slow-path
-    from intel.fastpath import fast_path_check
-
-    fast_result = fast_path_check(submission)
-    if fast_result is None:
-        from config.celery import investigate_scan
-
-        investigate_scan.delay(str(submission.id))
-        log_event(submission, "slow_path_enqueued")
-    else:
-        from assessment.services import store_assessment
-
-        store_assessment(submission, fast_result)
-
+    start_scan_pipeline(submission)
+    # Eager/dev execution may have completed the scan synchronously.
+    submission.refresh_from_db(fields=["status"])
     return Response(_scan_payload(submission), status=status.HTTP_202_ACCEPTED)
 
 
@@ -149,15 +148,12 @@ def get_evidence(request: Request, scan_id: str) -> Response:
         {"type": ind.indicator_type, "digest": ind.digest.hex()[:16] + "…"}
         for ind in indicators
     ]
-    from indicators.models import IndicatorObservation, ThreatIndicator
+    from indicators.models import IndicatorObservation, threat_indicators_for
 
     # Key observations on (type, digest) pairs — digest alone could collide
-    # across indicator types (spec: UNIQUE(indicator_type, digest))
+    # across indicator types (spec: UNIQUE(indicator_type, digest)).
     type_digests = {(ind.indicator_type, bytes(ind.digest)) for ind in indicators}
-    threat_rows = ThreatIndicator.objects.filter(
-        indicator_type__in=[t for t, _ in type_digests],
-        digest__in=[d for _, d in type_digests],
-    )
+    threat_rows = threat_indicators_for(type_digests)
     observations = [
         {
             "provider": obs.provider,

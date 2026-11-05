@@ -29,13 +29,16 @@ env = environ.Env(
     VIRUSTOTAL_API_KEY=(str, ""),
     N8N_WEBHOOK_URL=(str, ""),
     N8N_WEBHOOK_TOKEN=(str, ""),
+    TELEGRAM_BOT_TOKEN=(str, ""),
+    TELEGRAM_WEBHOOK_SECRET=(str, ""),
+    RDAP_BOOTSTRAP_URL=(str, "https://data.iana.org/rdap/dns.json"),
     SENTRY_DSN=(str, ""),
 )
 
-# --- fail-fast for core vars (not in pytest collection of settings-only tests) ---
+# --- fail-fast for core vars (pytest supplies its own test values) ---
 _CORE_REQUIRED = ["DJANGO_SECRET_KEY", "IDENTIFIER_HMAC_KEY", "FIELD_ENCRYPTION_KEY"]
 _missing = [k for k in _CORE_REQUIRED if not os.environ.get(k)]
-if _missing and "pytest" not in sys.modules and len(sys.argv) > 1:
+if _missing and "pytest" not in sys.modules:
     raise RuntimeError(f"Missing required env vars: {', '.join(_missing)}")
 
 SECRET_KEY = env("DJANGO_SECRET_KEY") or "dev-insecure-change-me"
@@ -65,6 +68,23 @@ MIDDLEWARE = [
 ROOT_URLCONF = "config.urls"
 DATABASES = {"default": env.db("DATABASE_URL")}
 USE_TZ = True
+
+# Shared cache for idempotency, throttling, provider quotas and circuit
+# breakers. Tests use an in-process cache so they do not require Redis.
+if "pytest" in sys.modules:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "cybersathi-tests",
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": env("REDIS_URL"),
+        }
+    }
 
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
@@ -101,6 +121,9 @@ VIRUSTOTAL_ENABLED = env("VIRUSTOTAL_ENABLED")
 VIRUSTOTAL_API_KEY = env("VIRUSTOTAL_API_KEY")
 N8N_WEBHOOK_URL = env("N8N_WEBHOOK_URL")
 N8N_WEBHOOK_TOKEN = env("N8N_WEBHOOK_TOKEN")
+TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN")
+TELEGRAM_WEBHOOK_SECRET = env("TELEGRAM_WEBHOOK_SECRET")
+RDAP_BOOTSTRAP_URL = env("RDAP_BOOTSTRAP_URL")
 
 if env("FEATURE_PHISHTANK") and not PHISHTANK_API_KEY:
     import warnings
@@ -114,7 +137,9 @@ if env("FEATURE_ABUSEIPDB") and not ABUSEIPDB_API_KEY:
 # Celery
 CELERY_BROKER_URL = env("REDIS_URL")
 CELERY_RESULT_BACKEND = env("REDIS_URL")
-CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=True)
+CELERY_TASK_ALWAYS_EAGER = env.bool(
+    "CELERY_TASK_ALWAYS_EAGER", default="pytest" in sys.modules
+)
 CELERY_TASK_SOFT_TIME_LIMIT = 120
 CELERY_TASK_TIME_LIMIT = 180
 CELERY_TASK_ACKS_LATE = True

@@ -24,6 +24,10 @@ class TestNormaliseText:
         text = normalise_text("a\x00b\x1fc")
         assert "\x00" not in text
 
+    def test_line_breaks_do_not_glue_words(self):
+        assert normalise_text("act\nnow") == "act now"
+        assert normalise_text("act\tnow") == "act now"
+
     def test_max_length(self):
         with pytest.raises(ValueError):
             normalise_text("x" * 5001)
@@ -43,6 +47,20 @@ class TestNormaliseUrl:
         result = normalise_url("https://मुंबई.example/")
         assert result is not None
         assert "xn--" in result
+
+    def test_invalid_port_rejected_instead_of_crashing(self):
+        assert normalise_url("https://example.com:not-a-port/x") is None
+        assert normalise_url("https://example.com:99999/x") is None
+
+    def test_non_http_schemes_rejected(self):
+        assert normalise_url("ftp://example.com/x") is None
+        assert normalise_url("javascript:alert(1)") is None
+
+    def test_whitespace_rejected(self):
+        assert normalise_url("https://exa mple.com/x") is None
+
+    def test_extraction_survives_bad_port(self):
+        assert extract_urls("visit https://example.com:not-a-port/x") == []
 
 
 class TestExtraction:

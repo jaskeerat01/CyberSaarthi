@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def _defang(text: str) -> str:
     """Defang URLs for display: hxxps://example[.]com"""
-    return html.escape(text.replace("http", "hxxp").replace(".", "[.]", 2))
+    return html.escape(text.replace("http", "hxxp").replace(".", "[.]"))
 
 
 def generate_pdf(scan_id: str) -> bytes:
@@ -26,13 +26,10 @@ def generate_pdf(scan_id: str) -> bytes:
     indicators = submission.indicators.all()
 
     # Per-provider outcomes + RDAP registration info (spec §13)
-    from indicators.models import IndicatorObservation, ThreatIndicator
+    from indicators.models import IndicatorObservation, threat_indicators_for
 
     type_digests = {(i.indicator_type, bytes(i.digest)) for i in indicators}
-    threat_rows = ThreatIndicator.objects.filter(
-        indicator_type__in=[t for t, _ in type_digests],
-        digest__in=[d for _, d in type_digests],
-    )
+    threat_rows = threat_indicators_for(type_digests)
     provider_rows = IndicatorObservation.objects.filter(indicator__in=threat_rows)
     provider_html = "\n".join(
         f"<tr><td>{html.escape(o.provider)}</td><td>{html.escape(o.outcome)}</td>"
@@ -48,7 +45,7 @@ def generate_pdf(scan_id: str) -> bytes:
     url_list = "\n".join(
         f"<li>{_defang(ind.normalised_value)}</li>"
         for ind in indicators
-        if ind.indicator_type in ("URL", "DOMAIN")
+        if ind.indicator_type in ("URL", "DOMAIN") and ind.normalised_value
     )
     evidence_html = ""
     if assessment:

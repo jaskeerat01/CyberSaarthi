@@ -57,16 +57,35 @@ services:
       redis:
         condition: service_healthy
 
+  celery-beat:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    command: celery -A config beat --loglevel=info
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-cybersathi}:${DB_PASSWORD:-changeme}@db:5432/${DB_NAME:-cybersathi}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+    depends_on:
+      - backend
     ports:
-      - "5173:5173"
+      - "5173:8080"
 
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
+    env_file: ../.env
     environment:
+      INTERNAL_API_BASE_URL: http://backend:8000
       DB_TYPE: postgresdb
       DB_POSTGRES_HOST: db
       DB_POSTGRES_PORT: 5432
@@ -76,6 +95,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      backend:
+        condition: service_started
     ports:
       - "5678:5678"
     volumes:
