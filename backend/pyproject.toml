@@ -32,7 +32,7 @@ dev = [
   "mypy>=1.10",
   "bandit>=1.9.4",
   "pip-audit>=2.10.1",
-  "testcontainers>=4.8",
+  "testcontainers>=4.15.0",
 ]
 
 [build-system]
