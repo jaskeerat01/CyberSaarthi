@@ -31,11 +31,16 @@ class ScamSubmission(models.Model):
     channel = models.CharField(max_length=16, choices=Channel.choices, default=Channel.WEB)
     input_type = models.CharField(max_length=16, default="text")
     raw_content_encrypted = models.TextField()
-    content_hash = models.BinaryField(null=True, blank=True)
+    # Content-hash idempotency lookup (find_existing_by_content) filters on
+    # (content_hash, created_at) on every submission write; without an index
+    # that is a full table scan. BinaryField supports btree indexes on
+    # PostgreSQL (bytea) and SQLite (blob).
+    content_hash = models.BinaryField(null=True, blank=True, db_index=True)
     status = models.CharField(max_length=16, choices=ScanStatus.choices, default=ScanStatus.PENDING)
     reported_financial_loss = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
-    retention_expires_at = models.DateTimeField(null=True, blank=True)
+    # The daily retention purge scans on this column.
+    retention_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class Meta:
         indexes = [models.Index(fields=["status", "created_at"])]
@@ -98,3 +103,7 @@ class WorkflowEvent(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+        indexes = [
+            # complete() and audit views filter (scan, event_type) repeatedly.
+            models.Index(fields=["scan", "event_type"]),
+        ]

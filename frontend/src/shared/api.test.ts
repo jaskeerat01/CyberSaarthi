@@ -9,6 +9,16 @@ describe('defang', () => {
   it('defangs URLs', () => {
     expect(defang('https://evil.example.com/login')).toBe('hxxps://evil[.]example[.]com/login');
   });
+
+  it('does not rewrite "http" inside a hostname', () => {
+    // Only the scheme is rewritten; "httpbin" and "myhttp" must stay intact.
+    expect(defang('https://httpbin.example/myhttp')).toBe('hxxps://httpbin[.]example/myhttp');
+    expect(defang('myhttp.example')).toBe('myhttp[.]example');
+  });
+
+  it('defangs bare domains', () => {
+    expect(defang('evil.example')).toBe('evil[.]example');
+  });
 });
 
 describe('deleteScan', () => {

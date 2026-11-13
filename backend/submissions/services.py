@@ -15,58 +15,85 @@ from . import normalisation as norm
 logger = logging.getLogger(__name__)
 
 
-def create_submission(raw_content: str, channel: str = "web", reported_financial_loss: bool = False) -> ScamSubmission:
-    """Create a submission + extract indicators. Idempotency handled by caller via content hash."""
-    text = norm.normalise_text(raw_content, max_chars=settings.MAX_INPUT_CHARS)
-    content_digest, _ = hmac_digest(text)
+def create_submission(
+    raw_content: str,
+    channel: str = "web",
+    reported_financial_loss: bool = False,
+    *,
+    normalised_text: str | None = None,
+    content_digest: bytes | None = None,
+) -> ScamSubmission:
+    """Create a submission + extract indicators. Idempotency handled by caller via content hash.
 
+    ``normalised_text``/``content_digest`` let callers that already normalised
+    the input (e.g. create_scan, for the dedupe lookup) avoid a second
+    normalisation pass and HMAC over the same text.
+    """
+    text = (
+        normalised_text
+        if normalised_text is not None
+        else norm.normalise_text(raw_content, max_chars=settings.MAX_INPUT_CHARS)
+    )
+    if content_digest is None:
+        content_digest, _ = hmac_digest(text)
+    # Extract once: each extractor is a regex pass over the whole message and
+    # the URL list is also needed to decide input_type.
+    urls = norm.extract_urls(text)
+
+    indicators: list[tuple[str, str]] = []
+    for url in urls:
+        indicators.append(("URL", url))
+        domain = norm.extract_domain(url)
+        if domain:
+            indicators.append(("DOMAIN", domain))
+    for email in norm.extract_emails(text):
+        indicators.append(("EMAIL", email))
+    for phone in norm.extract_phones(text):
+        indicators.append(("PHONE", phone))
+    for upi in norm.extract_upi_ids(text):
+        indicators.append(("UPI", upi))
+    for ip in norm.extract_ips(text):
+        indicators.append(("IP", ip))
+
+    # The n8n contract accepts at most 50 indicators; de-duplicate and cap
+    # here so a dense message cannot make the workflow reject the scan and
+    # leave it stuck before completion.
+    seen: set[tuple[str, str]] = set()
+    unique_indicators: list[tuple[str, str]] = []
+    for pair in indicators:
+        if pair not in seen:
+            seen.add(pair)
+            unique_indicators.append(pair)
+    indicators = unique_indicators[:50]
+
+    # One INSERT for the submission (the raw_content setter also stamps
+    # retention_expires_at) and one bulk INSERT for the indicators instead of
+    # a get_or_create round-trip per indicator.
     with transaction.atomic():
-        submission = ScamSubmission.objects.create(
+        submission = ScamSubmission(
             channel=channel,
-            input_type="url" if norm.extract_urls(text) else "text",
+            input_type="url" if urls else "text",
             reported_financial_loss=reported_financial_loss,
+            content_hash=content_digest,
         )
         submission.raw_content = text
-        submission.content_hash = content_digest
         submission.save()
 
-        indicators: list[tuple[str, str]] = []
-        for url in norm.extract_urls(text):
-            indicators.append(("URL", url))
-            domain = norm.extract_domain(url)
-            if domain:
-                indicators.append(("DOMAIN", domain))
-        for email in norm.extract_emails(text):
-            indicators.append(("EMAIL", email))
-        for phone in norm.extract_phones(text):
-            indicators.append(("PHONE", phone))
-        for upi in norm.extract_upi_ids(text):
-            indicators.append(("UPI", upi))
-        for ip in norm.extract_ips(text):
-            indicators.append(("IP", ip))
-
-        # The n8n contract accepts at most 50 indicators; de-duplicate and cap
-        # here so a dense message cannot make the workflow reject the scan and
-        # leave it stuck before completion.
-        seen: set[tuple[str, str]] = set()
-        unique_indicators: list[tuple[str, str]] = []
-        for pair in indicators:
-            if pair not in seen:
-                seen.add(pair)
-                unique_indicators.append(pair)
-        indicators = unique_indicators[:50]
-
+        rows: list[ExtractedIndicator] = []
         for itype, value in indicators:
             digest, version = hmac_digest(value)
-            ExtractedIndicator.objects.get_or_create(
-                submission=submission,
-                indicator_type=itype,
-                digest=digest,
-                defaults={
-                    "key_version": version,
-                    "normalised_value_encrypted": encrypt(value),
-                },
+            rows.append(
+                ExtractedIndicator(
+                    submission=submission,
+                    indicator_type=itype,
+                    digest=digest,
+                    key_version=version,
+                    normalised_value_encrypted=encrypt(value),
+                )
             )
+        # ignore_conflicts covers the unique(submission, type, digest) guard;
+        # the de-duplication above should already make this a no-op.
+        ExtractedIndicator.objects.bulk_create(rows, ignore_conflicts=True)
 
         WorkflowEvent.objects.create(
             scan=submission,

@@ -81,5 +81,11 @@ export async function fetchReportPdf(signedUrl: string): Promise<Blob> {
 }
 
 export function defang(text: string): string {
-  return text.replace(/http/g, 'hxxp').replace(/\./g, '[.]');
+  // Only rewrite a real scheme prefix: a blanket /http/g would also mangle
+  // hostnames such as "httpbin.org". Bare domains (no scheme) still get
+  // their dots bracketed.
+  return text
+    .replace(/^https:\/\//i, 'hxxps://')
+    .replace(/^http:\/\//i, 'hxxp://')
+    .replace(/\./g, '[.]');
 }

@@ -160,6 +160,41 @@ class TestOpenPhishIngest:
         )
         assert resp.status_code == 400
 
+    def test_ingest_bulk_dedupes_within_batch(self):
+        """Duplicate feed lines count once, and re-ingest refreshes last_seen."""
+        from django.utils import timezone
+
+        from core.crypto import hmac_digest
+        from intel.models import OpenPhishEntry
+
+        url = "https://bulk-openphish.example/login"
+        digest, _ = hmac_digest(url)
+        before = timezone.now() - timezone.timedelta(days=1)
+        OpenPhishEntry.objects.filter(digest=digest).update(last_seen=before)
+
+        resp = APIClient().post(
+            "/internal/openphish/ingest",
+            {"urls": [url, url, url]},
+            format="json",
+            HTTP_X_INTERNAL_SERVICE_TOKEN="test-internal-token",
+        )
+        assert resp.status_code == 200
+        assert resp.data["received"] == 3
+        # One created from the three identical lines.
+        assert resp.data["created"] == 1
+        assert OpenPhishEntry.objects.filter(digest=digest).count() == 1
+        # Re-syncing an existing entry refreshes last_seen without duplicating.
+        OpenPhishEntry.objects.filter(digest=digest).update(last_seen=before)
+        resp2 = APIClient().post(
+            "/internal/openphish/ingest",
+            {"urls": [url]},
+            format="json",
+            HTTP_X_INTERNAL_SERVICE_TOKEN="test-internal-token",
+        )
+        assert resp2.data["created"] == 0
+        entry = OpenPhishEntry.objects.get(digest=digest)
+        assert entry.last_seen > before
+
 
 @pytest.mark.django_db
 class TestSubmissionLimits:

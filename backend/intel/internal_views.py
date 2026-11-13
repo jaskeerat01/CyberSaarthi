@@ -12,7 +12,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from core.problem_details import problem
-from indicators.models import IndicatorObservation, ThreatIndicatorStatus, upsert_indicator
+from indicators.models import (
+    IndicatorObservation,
+    ThreatIndicator,
+    ThreatIndicatorStatus,
+    threat_indicators_for,
+)
 from submissions.models import ScamSubmission
 from submissions.services import log_event
 
@@ -44,14 +49,18 @@ def _check_token(request: Request) -> bool:
     return hmac.compare_digest(token, expected)
 
 
-def _promote_on_match(submission: ScamSubmission, indicator, provider: str) -> None:
+def _promote_on_match(submission: ScamSubmission, indicator, providers: set[str]) -> None:
     """Enforce + log indicator state transitions on trusted MATCH (§5).
 
     REPORTED --(first trusted MATCH)--> UNDER_REVIEW
     UNDER_REVIEW --(>=2 independent trusted MATCH providers)--> CORROBORATED
     Never CONFIRMED — that requires human review.
+
+    ``providers`` is the set of trusted providers that matched, already
+    filtered to the current status, so this makes no per-indicator queries.
     """
-    if provider not in TRUSTED_CORROBORATORS:
+    trusted_matches = providers & TRUSTED_CORROBORATORS
+    if not trusted_matches:
         return
 
     def _transition(new_status: str, *, trusted: bool) -> None:
@@ -67,22 +76,15 @@ def _promote_on_match(submission: ScamSubmission, indicator, provider: str) -> N
                 "indicator_type": indicator.indicator_type,
                 "from": previous,
                 "to": new_status,
-                "provider": provider,
+                "provider": min(trusted_matches),
             },
         )
 
     if indicator.status == ThreatIndicatorStatus.REPORTED:
         _transition(ThreatIndicatorStatus.UNDER_REVIEW, trusted=False)
 
-    if indicator.status == ThreatIndicatorStatus.UNDER_REVIEW:
-        match_providers = set(
-            indicator.observations.filter(outcome="MATCH")
-            .values_list("provider", flat=True)
-            .distinct()
-        )
-        trusted_matches = match_providers & TRUSTED_CORROBORATORS
-        if len(trusted_matches) >= 2:
-            _transition(ThreatIndicatorStatus.CORROBORATED, trusted=True)
+    if indicator.status == ThreatIndicatorStatus.UNDER_REVIEW and len(trusted_matches) >= 2:
+        _transition(ThreatIndicatorStatus.CORROBORATED, trusted=True)
 
 
 @extend_schema(
@@ -107,26 +109,100 @@ def enrichment(request: Request, scan_id: str) -> Response:
     observations = serializer.validated_data["observations"]
     log_event(submission, "enrichment_received", summary={"count": len(observations)})
 
+    from django.db.models.functions import Now
+
+    from core.crypto import hmac_digest
     from core.views import PROVIDER_OUTCOMES
 
+    # Resolve digests and de-duplicate within this payload (n8n retries can
+    # repeat a provider/outcome pair). One indicator key can still have
+    # several provider observations.
+    entries: list[tuple[str, bytes, str, str, str, str]] = []
+    seen: set[tuple[str, bytes, str, str]] = set()
     for obs in observations:
-        from core.crypto import hmac_digest
-
         digest, _ = hmac_digest(obs["normalised_value"])
-        provider = obs["provider"]
-        outcome = obs["outcome"]
-        indicator, _ = upsert_indicator(obs["type"], digest)
-        IndicatorObservation.objects.create(
-            indicator=indicator,
-            provider=provider,
-            outcome=outcome,
-            response_reference=str(obs.get("response_reference", ""))[:500],
-            error_detail=str(obs.get("error_detail", ""))[:500],
+        digest = bytes(digest)
+        dedupe_key = (obs["type"], digest, obs["provider"], obs["outcome"])
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        entries.append(
+            (
+                obs["type"],
+                digest,
+                obs["provider"],
+                obs["outcome"],
+                str(obs.get("response_reference", ""))[:500],
+                str(obs.get("error_detail", ""))[:500],
+            )
         )
-        if PROVIDER_OUTCOMES is not None:
+
+    keys = {(indicator_type, digest) for indicator_type, digest, *_ in entries}
+    existing: dict[tuple[str, bytes], ThreatIndicator] = {
+        (row.indicator_type, bytes(row.digest)): row
+        for row in threat_indicators_for(keys)
+    }
+    # One bulk INSERT for new indicators (ignore_conflicts tolerates a race
+    # with a concurrent callback) instead of get_or_create per observation.
+    missing = [
+        ThreatIndicator(indicator_type=indicator_type, digest=digest)
+        for indicator_type, digest in keys
+        if (indicator_type, digest) not in existing
+    ]
+    if missing:
+        ThreatIndicator.objects.bulk_create(missing, ignore_conflicts=True)
+    indicators = {
+        (row.indicator_type, bytes(row.digest)): row
+        for row in threat_indicators_for(keys)
+    }
+    if existing:
+        ThreatIndicator.objects.filter(
+            pk__in=[row.pk for row in existing.values()]
+        ).update(last_seen=Now())
+
+    IndicatorObservation.objects.bulk_create(
+        [
+            IndicatorObservation(
+                indicator=indicators[(indicator_type, digest)],
+                provider=provider,
+                outcome=outcome,
+                response_reference=response_reference,
+                error_detail=error_detail,
+            )
+            for (
+                indicator_type,
+                digest,
+                provider,
+                outcome,
+                response_reference,
+                error_detail,
+            ) in entries
+        ],
+        batch_size=500,
+    )
+
+    if PROVIDER_OUTCOMES is not None:
+        for _itype, _digest, provider, outcome, _ref, _err in entries:
             PROVIDER_OUTCOMES.labels(provider=provider, outcome=outcome).inc()
-        if outcome == "MATCH":
-            _promote_on_match(submission, indicator, provider)
+
+    # Providers that matched for each indicator, loaded in one query so the
+    # promotion rules (1 trusted MATCH → UNDER_REVIEW, 2 → CORROBORATED) do
+    # not issue a query per observation.
+    matched_providers: dict[object, set[str]] = {}
+    trusted_in_batch: set[object] = set()
+    for indicator_id, provider in IndicatorObservation.objects.filter(
+        indicator__in=indicators.values(), outcome="MATCH"
+    ).values_list("indicator_id", "provider"):
+        matched_providers.setdefault(indicator_id, set()).add(provider)
+    for _itype, _digest, provider, outcome, _ref, _err in entries:
+        if outcome == "MATCH" and provider in TRUSTED_CORROBORATORS:
+            trusted_in_batch.add(indicators[(_itype, _digest)].pk)
+
+    for indicator in indicators.values():
+        if indicator.pk in trusted_in_batch:
+            _promote_on_match(
+                submission, indicator, matched_providers.get(indicator.pk, set())
+            )
 
     return Response({"status": "recorded"})
 

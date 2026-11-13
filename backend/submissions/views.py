@@ -78,6 +78,8 @@ def create_scan(request: Request) -> Response:
         raw_content=data["raw_content"],
         channel=data.get("channel", "web"),
         reported_financial_loss=data.get("reported_financial_loss", False),
+        normalised_text=text,
+        content_digest=digest,
     )
     if idem_key:
         cache.set(f"idem:{idem_key}", str(submission.id), timeout=IDEMPOTENCY_WINDOW_SECONDS)

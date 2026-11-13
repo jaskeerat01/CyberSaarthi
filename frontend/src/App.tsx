@@ -1,10 +1,15 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import SubmissionPage from './features/submission/SubmissionPage';
 import ScanStatusPage from './features/scans/ScanStatusPage';
-import ResultPage from './features/report/ResultPage';
-import ReportPage from './features/report/ReportPage';
-import HistoryPage from './features/scans/HistoryPage';
+
+// The submission + status flow is the primary entry path, so it is bundled
+// eagerly. Heavier secondary screens (evidence result, PDF report, history)
+// load on demand, keeping the first paint small.
+const ResultPage = lazy(() => import('./features/report/ResultPage'));
+const ReportPage = lazy(() => import('./features/report/ReportPage'));
+const HistoryPage = lazy(() => import('./features/scans/HistoryPage'));
 
 export default function App() {
   const { t, i18n } = useTranslation();
@@ -36,13 +41,15 @@ export default function App() {
         </div>
       </header>
       <main id="main" className="max-w-3xl mx-auto px-4 py-6">
-        <Routes>
-          <Route path="/" element={<SubmissionPage />} />
-          <Route path="/scan/:scanId" element={<ScanStatusPage />} />
-          <Route path="/scan/:scanId/result" element={<ResultPage />} />
-          <Route path="/scan/:scanId/report" element={<ReportPage />} />
-          <Route path="/history" element={<HistoryPage />} />
-        </Routes>
+        <Suspense fallback={<p aria-live="polite">{t('scan.pending')}</p>}>
+          <Routes>
+            <Route path="/" element={<SubmissionPage />} />
+            <Route path="/scan/:scanId" element={<ScanStatusPage />} />
+            <Route path="/scan/:scanId/result" element={<ResultPage />} />
+            <Route path="/scan/:scanId/report" element={<ReportPage />} />
+            <Route path="/history" element={<HistoryPage />} />
+          </Routes>
+        </Suspense>
       </main>
       <footer className="text-center text-xs text-gray-500 py-4">
         <p>

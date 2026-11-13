@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import time
+
+from core.views import REQUEST_LATENCY
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +37,9 @@ class JsonLoggingMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        import time
-
         start = time.perf_counter()
         response = self.get_response(request)
         elapsed = time.perf_counter() - start
-
-        from core.views import REQUEST_LATENCY
 
         if REQUEST_LATENCY is not None:
             REQUEST_LATENCY.observe(elapsed)
