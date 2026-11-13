@@ -9,7 +9,7 @@ export const ScanCreateResponse = z.object({
 });
 
 /** Evidence is stored as either a keyed record or a list of evidence entries. */
-const Evidence = z.union([z.record(z.unknown()), z.array(z.unknown())]);
+const Evidence = z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())]);
 
 export const ScanDetail = z.object({
   scan_id: z.string(),

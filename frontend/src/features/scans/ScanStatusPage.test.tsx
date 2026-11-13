@@ -15,10 +15,7 @@ vi.mock('../../shared/api', () => ({
 
 function wrap() {
   return render(
-    <MemoryRouter
-      initialEntries={['/scan/abc']}
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    >
+    <MemoryRouter initialEntries={['/scan/abc']}>
       <QueryClientProvider
         client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
       >

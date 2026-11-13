@@ -26,10 +26,4 @@ export default defineConfig({
       '/internal': 'http://localhost:8000',
     },
   },
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: ['./src/test/setup.ts'],
-    exclude: ['**/node_modules/**', '**/e2e/**'],
-  },
 });
